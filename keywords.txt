@@ -1,0 +1,14 @@
+# 示例关键词列表
+# 每行一个关键词
+# 以#开头的行将被忽略
+
+character headcanon generator
+best seo tools
+how to learn python
+buy iphone 15
+digital marketing course
+wordpress themes
+content writing services
+online business ideas
+machine learning tutorial
+web development agency 
