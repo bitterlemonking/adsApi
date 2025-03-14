@@ -13,15 +13,41 @@
 
 ## 技术栈
 
-- 后端：Python + Flask (轻量级Web框架)
-- 前端：HTML + CSS + JavaScript (简单直接)
-- API：Google Ads API
+- 核心功能：Python + Google Ads API
+- 命令行工具：支持单个关键词查询和批量处理
+
+## 使用方法
+
+### 单个关键词查询
+
+```bash
+# 交互式模式
+python keyword_cli.py
+
+# 直接查询特定关键词
+python keyword_cli.py "digital marketing"
+
+# 显示详细日志
+python keyword_cli.py -d "seo tools"
+```
+
+### 批量关键词处理
+
+```bash
+# 处理关键词列表文件
+python batch_keywords.py keywords.txt
+
+# 指定输出文件
+python batch_keywords.py -o results.csv keywords.txt
+```
+
+详细使用说明请参考 [CLI_USAGE.md](CLI_USAGE.md)。
 
 ## 开发流程
 
 1. **环境搭建**
    - 创建项目结构
-   - 安装必要依赖 (Python, Flask, Google Ads API Client)
+   - 安装必要依赖 (Python, Google Ads API Client)
    - 配置Google Ads API认证
 
 2. **API集成**
@@ -29,18 +55,29 @@
    - 开发关键词数据获取接口
    - 处理API响应数据
 
-3. **前端开发**
-   - 设计简洁的用户界面
-   - 实现关键词输入功能
-   - 展示分析结果
-
-4. **数据处理**
+3. **数据处理**
    - 解析API返回的数据
    - 计算和分类关键词类型
    - 格式化展示数据
 
-5. **测试与优化**
-   - 功能测试
-   - 性能优化
-   - 用户体验改进
+4. **命令行工具开发**
+   - 单个关键词查询工具
+   - 批量处理工具
+   - 结果导出功能
+
+## 安装与配置
+
+1. 安装依赖：
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. 复制配置文件模板并填写API凭据：
+   ```
+   cp config.example.py config.py
+   ```
+
+3. 编辑`config.py`文件，填入你的Google Ads API凭据。
+
+API设置指南请参考 [API_SETUP.md](API_SETUP.md)。
 
