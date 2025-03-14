@@ -29,6 +29,7 @@ def setup_argparse():
     parser.add_argument('-c', '--country', default='2840', help='国家ID (默认: 2840 - 美国)')
     parser.add_argument('-j', '--json', action='store_true', help='以JSON格式输出结果')
     parser.add_argument('-v', '--verbose', action='store_true', help='显示详细日志')
+    parser.add_argument('-d', '--debug', action='store_true', help='显示调试级别的日志（比verbose更详细）')
     return parser
 
 def format_output(keyword_data, json_output=False):
@@ -46,7 +47,16 @@ def format_output(keyword_data, json_output=False):
     output.append(f"搜索量 (美国): {keyword_data.get('volume_us', 'N/A'):,}")
     output.append(f"搜索量 (全球): {keyword_data.get('volume_global', 'N/A'):,}")
     output.append(f"关键词难度 (KD): {keyword_data.get('kd', 'N/A')}")
-    output.append(f"CPC: ${keyword_data.get('cpc', 0):.2f}")
+    
+    # 处理CPC显示
+    cpc = keyword_data.get('cpc')
+    if cpc is None:
+        cpc_display = "数据不可用"
+    elif cpc == 0:
+        cpc_display = "$0.00"
+    else:
+        cpc_display = f"${cpc:.2f}"
+    output.append(f"CPC: {cpc_display}")
     
     # 关键词类型
     keyword_type = keyword_data.get('type', 'I')
@@ -64,6 +74,12 @@ def format_output(keyword_data, json_output=False):
     }
     output.append(f"竞争度: {competition_map.get(competition, competition)}")
     output.append(f"竞争指数: {keyword_data.get('competition_index', 'N/A')}")
+    
+    # 添加原始数据提示
+    if keyword_data.get('_debug_info'):
+        output.append("\n调试信息:")
+        for key, value in keyword_data.get('_debug_info', {}).items():
+            output.append(f"  {key}: {value}")
     
     return "\n".join(output)
 
@@ -116,8 +132,12 @@ def main():
     args = parser.parse_args()
     
     # 设置日志级别
-    if args.verbose:
+    if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+        # 设置ads_api包的日志级别为DEBUG
+        logging.getLogger('ads_api').setLevel(logging.DEBUG)
+    elif args.verbose:
+        logging.getLogger().setLevel(logging.INFO)
     else:
         logging.getLogger().setLevel(logging.WARNING)
     
@@ -135,6 +155,7 @@ def main():
             return 1
             
         # 获取关键词数据
+        logger.info(f"开始获取关键词数据: {args.keyword}")
         keyword_data = get_keyword_data(
             ads_client, 
             customer_id, 
@@ -151,7 +172,7 @@ def main():
             
     except Exception as e:
         logger.error(f"分析关键词时出错: {e}")
-        if args.verbose:
+        if args.verbose or args.debug:
             import traceback
             traceback.print_exc()
         return 1

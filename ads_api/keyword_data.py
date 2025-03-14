@@ -52,24 +52,24 @@ def get_keyword_data(client, customer_id, keyword, language_id="1000", location_
         location_resource_name = geo_target_constant_service.geo_target_constant_path(location_id)
         logger.debug(f"位置资源名称: {location_resource_name}")
         
-        # 创建请求
-        logger.debug("创建请求")
-        request = client.get_type("GenerateKeywordIdeasRequest")
-        request.customer_id = customer_id
-        request.language = language_resource_name
-        request.geo_target_constants = [location_resource_name]
-        request.include_adult_keywords = False
-        request.keyword_plan_network = keyword_plan_network
+        # 创建请求 - 特定国家（美国）
+        logger.debug("创建美国地区请求")
+        us_request = client.get_type("GenerateKeywordIdeasRequest")
+        us_request.customer_id = customer_id
+        us_request.language = language_resource_name
+        us_request.geo_target_constants = [location_resource_name]
+        us_request.include_adult_keywords = False
+        us_request.keyword_plan_network = keyword_plan_network
         
         # 设置关键词种子
         logger.debug(f"设置关键词种子: {keyword}")
-        request.keyword_seed.keywords.append(keyword)
+        us_request.keyword_seed.keywords.append(keyword)
         logger.debug(f"成功设置关键词种子")
         
-        # 发送请求
-        logger.info("发送关键词规划请求")
+        # 发送美国地区请求
+        logger.info("发送美国地区关键词规划请求")
         try:
-            logger.debug("调用generate_keyword_ideas方法")
+            logger.debug("调用generate_keyword_ideas方法 (美国)")
             
             # 获取管理者账户ID
             manager_id = GOOGLE_ADS.get('manager_customer_id')
@@ -83,64 +83,79 @@ def get_keyword_data(client, customer_id, keyword, language_id="1000", location_
             logger.debug(f"请求的客户账户ID: {customer_id}")
             
             # 使用元数据发送请求
-            response = keyword_plan_idea_service.generate_keyword_ideas(
-                request=request,
+            us_response = keyword_plan_idea_service.generate_keyword_ideas(
+                request=us_request,
                 metadata=metadata
             )
             
-            logger.info("成功获取关键词规划数据")
+            logger.info("成功获取美国地区关键词规划数据")
         except GoogleAdsException as ex:
-            logger.error(f"Google Ads API错误: {ex}")
+            logger.error(f"Google Ads API错误 (美国请求): {ex}")
             for error in ex.failure.errors:
                 logger.error(f"\t{error.error_code}: {error.message}")
             raise
         except Exception as e:
-            logger.error(f"调用generate_keyword_ideas方法失败: {e}")
+            logger.error(f"调用generate_keyword_ideas方法失败 (美国请求): {e}")
             logger.error(traceback.format_exc())
             raise
         
+        # 创建全球请求 - 不指定地理位置
+        logger.debug("创建全球请求")
+        global_request = client.get_type("GenerateKeywordIdeasRequest")
+        global_request.customer_id = customer_id
+        global_request.language = language_resource_name
+        # 不设置geo_target_constants，以获取全球数据
+        global_request.include_adult_keywords = False
+        global_request.keyword_plan_network = keyword_plan_network
+        global_request.keyword_seed.keywords.append(keyword)
+        
+        # 发送全球请求
+        logger.info("发送全球关键词规划请求")
+        try:
+            global_response = keyword_plan_idea_service.generate_keyword_ideas(
+                request=global_request,
+                metadata=metadata
+            )
+            logger.info("成功获取全球关键词规划数据")
+        except Exception as e:
+            logger.error(f"获取全球数据失败: {e}")
+            logger.warning("将使用美国数据作为全球数据的替代")
+            global_response = None
+        
         # 处理结果
         keyword_data = {}
-        logger.debug(f"处理响应结果")
+        logger.debug(f"处理美国响应结果")
         
-        for result in response:
-            logger.debug(f"处理结果: {result.text}")
-            if result.text.lower() == keyword.lower():
-                # 提取数据
-                logger.info(f"找到精确匹配的关键词: {result.text}")
-                keyword_data = {
-                    'keyword': result.text,
-                    'volume_us': result.keyword_idea_metrics.avg_monthly_searches,
-                    'volume_global': result.keyword_idea_metrics.avg_monthly_searches,  # 需要另一个请求获取全球数据
-                    'competition': result.keyword_idea_metrics.competition.name,
-                    'competition_index': result.keyword_idea_metrics.competition_index,
-                    'cpc': result.keyword_idea_metrics.average_cpc_micros / 1000000,  # 转换为美元
-                    'type': analyze_keyword_type(result.text)
-                }
-                break
+        # 处理美国数据
+        us_keyword_data = process_response(us_response, keyword)
         
-        # 如果没有找到精确匹配的关键词，使用第一个结果
-        if not keyword_data and response:
-            result = list(response)[0]
-            logger.info(f"未找到精确匹配，使用第一个结果: {result.text}")
-            keyword_data = {
-                'keyword': result.text,
-                'volume_us': result.keyword_idea_metrics.avg_monthly_searches,
-                'volume_global': result.keyword_idea_metrics.avg_monthly_searches,
-                'competition': result.keyword_idea_metrics.competition.name,
-                'competition_index': result.keyword_idea_metrics.competition_index,
-                'cpc': result.keyword_idea_metrics.average_cpc_micros / 1000000,
-                'type': analyze_keyword_type(result.text)
-            }
-        
-        # 计算关键词难度 (KD)
-        if 'competition_index' in keyword_data:
-            logger.debug("计算关键词难度")
-            keyword_data['kd'] = calculate_keyword_difficulty(
-                keyword_data['competition_index'],
-                keyword_data['volume_us'],
-                keyword_data['cpc']
-            )
+        if us_keyword_data:
+            keyword_data = us_keyword_data
+            keyword_data['volume_us'] = keyword_data.pop('volume', 0)
+            
+            # 处理全球数据
+            if global_response:
+                logger.debug(f"处理全球响应结果")
+                global_keyword_data = process_response(global_response, keyword)
+                if global_keyword_data:
+                    keyword_data['volume_global'] = global_keyword_data.get('volume', 0)
+                else:
+                    logger.warning("未找到全球数据，使用美国数据作为替代")
+                    keyword_data['volume_global'] = keyword_data['volume_us']
+            else:
+                logger.warning("全球请求失败，使用美国数据作为替代")
+                keyword_data['volume_global'] = keyword_data['volume_us']
+            
+            # 计算关键词难度 (KD)
+            if 'competition_index' in keyword_data:
+                logger.debug("计算关键词难度")
+                keyword_data['kd'] = calculate_keyword_difficulty(
+                    keyword_data['competition_index'],
+                    keyword_data['volume_us'],
+                    keyword_data.get('cpc', 0)
+                )
+        else:
+            logger.warning(f"未找到关键词 '{keyword}' 的数据")
         
         logger.info(f"成功获取关键词数据: {keyword_data}")
         return keyword_data
@@ -154,6 +169,86 @@ def get_keyword_data(client, customer_id, keyword, language_id="1000", location_
         logger.error(f"获取关键词数据时出错: {e}")
         logger.error(traceback.format_exc())
         raise
+
+def process_response(response, target_keyword):
+    """
+    处理API响应，提取关键词数据
+    
+    Args:
+        response: API响应
+        target_keyword: 目标关键词
+        
+    Returns:
+        dict: 包含关键词数据的字典
+    """
+    keyword_data = {}
+    
+    for result in response:
+        logger.debug(f"处理结果: {result.text}")
+        
+        # 添加详细日志，输出API返回的原始数据
+        logger.debug(f"API返回的原始数据:")
+        logger.debug(f"  - 关键词: {result.text}")
+        logger.debug(f"  - 搜索量: {result.keyword_idea_metrics.avg_monthly_searches}")
+        
+        # 记录CPC相关的详细信息
+        logger.debug(f"  - CPC相关数据:")
+        logger.debug(f"    - average_cpc_micros: {result.keyword_idea_metrics.average_cpc_micros}")
+        logger.debug(f"    - 转换后的CPC(美元): {result.keyword_idea_metrics.average_cpc_micros / 1000000 if result.keyword_idea_metrics.average_cpc_micros else 0}")
+        
+        # 记录竞争度相关的详细信息
+        logger.debug(f"  - 竞争度相关数据:")
+        logger.debug(f"    - competition: {result.keyword_idea_metrics.competition.name}")
+        logger.debug(f"    - competition_index: {result.keyword_idea_metrics.competition_index}")
+        
+        if result.text.lower() == target_keyword.lower():
+            # 提取数据
+            logger.info(f"找到精确匹配的关键词: {result.text}")
+            
+            # 处理CPC数据
+            cpc_micros = result.keyword_idea_metrics.average_cpc_micros
+            if cpc_micros and cpc_micros > 0:
+                cpc = cpc_micros / 1000000  # 转换为美元
+            else:
+                cpc = None  # 使用None表示CPC数据不可用
+                logger.debug(f"CPC数据不可用 (average_cpc_micros = {cpc_micros})")
+            
+            keyword_data = {
+                'keyword': result.text,
+                'volume': result.keyword_idea_metrics.avg_monthly_searches,
+                'competition': result.keyword_idea_metrics.competition.name,
+                'competition_index': result.keyword_idea_metrics.competition_index,
+                'cpc': cpc,
+                'type': analyze_keyword_type(result.text)
+            }
+            break
+    
+    # 如果没有找到精确匹配的关键词，使用第一个结果
+    if not keyword_data and response:
+        try:
+            result = list(response)[0]
+            logger.info(f"未找到精确匹配，使用第一个结果: {result.text}")
+            
+            # 处理CPC数据
+            cpc_micros = result.keyword_idea_metrics.average_cpc_micros
+            if cpc_micros and cpc_micros > 0:
+                cpc = cpc_micros / 1000000  # 转换为美元
+            else:
+                cpc = None  # 使用None表示CPC数据不可用
+                logger.debug(f"CPC数据不可用 (average_cpc_micros = {cpc_micros})")
+            
+            keyword_data = {
+                'keyword': result.text,
+                'volume': result.keyword_idea_metrics.avg_monthly_searches,
+                'competition': result.keyword_idea_metrics.competition.name,
+                'competition_index': result.keyword_idea_metrics.competition_index,
+                'cpc': cpc,
+                'type': analyze_keyword_type(result.text)
+            }
+        except Exception as e:
+            logger.error(f"处理第一个结果时出错: {e}")
+    
+    return keyword_data
 
 def calculate_keyword_difficulty(competition_index, search_volume, cpc):
     """
