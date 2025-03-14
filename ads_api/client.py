@@ -4,9 +4,9 @@ Google Ads API 客户端
 """
 
 import os
+import logging
 from google.ads.googleads.client import GoogleAdsClient as Client
 from google.ads.googleads.errors import GoogleAdsException
-import logging
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -36,16 +36,19 @@ class GoogleAdsClient:
                 "client_secret": self.config['client_secret'],
                 "refresh_token": self.config['refresh_token'],
                 "use_proto_plus": self.config.get('use_proto_plus', True),
-                "version": "v17",  # 明确指定使用v17版本的API
+                "version": "v19",  # 使用v19版本的API，这是当前可用的版本
             }
             
-            # 如果提供了login_customer_id，则添加到配置中
-            if 'login_customer_id' in self.config and self.config['login_customer_id']:
+            # 如果提供了manager_customer_id，则添加到配置中
+            if 'manager_customer_id' in self.config and self.config['manager_customer_id']:
+                client_config["login_customer_id"] = self.config['manager_customer_id']
+            elif 'login_customer_id' in self.config and self.config['login_customer_id']:
                 client_config["login_customer_id"] = self.config['login_customer_id']
             
             # 初始化客户端
             self.client = Client.load_from_dict(client_config)
             logger.info("Google Ads API客户端初始化成功")
+            logger.info(f"使用的API版本: {client_config['version']}")
             
         except Exception as e:
             logger.error(f"初始化Google Ads API客户端时出错: {e}")

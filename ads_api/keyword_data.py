@@ -5,8 +5,11 @@
 
 import logging
 import traceback
+import math
+import re
 from .client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
+from config import GOOGLE_ADS
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -36,58 +39,71 @@ def get_keyword_data(client, customer_id, keyword, language_id="1000", location_
         
         # 获取枚举类型
         logger.debug("获取枚举类型")
-        keyword_plan_network_enum = client.get_type("KeywordPlanNetworkEnum")
-        keyword_plan_network = keyword_plan_network_enum.KeywordPlanNetwork.GOOGLE_SEARCH_AND_PARTNERS
+        keyword_plan_network = client.get_client().enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH_AND_PARTNERS
         logger.debug(f"成功获取枚举类型: {keyword_plan_network}")
         
-        # 创建关键词种子
-        logger.debug(f"创建关键词种子: {keyword}")
-        keyword_seed = client.get_type("KeywordSeed")
-        keyword_seed.keywords.append(keyword)
-        logger.debug(f"成功创建关键词种子: {keyword_seed}")
+        # 创建资源名称
+        logger.debug("创建资源名称")
+        google_ads_service = client.get_service("GoogleAdsService")
+        language_resource_name = google_ads_service.language_constant_path(language_id)
+        logger.debug(f"语言资源名称: {language_resource_name}")
+        
+        geo_target_constant_service = client.get_service("GeoTargetConstantService")
+        location_resource_name = geo_target_constant_service.geo_target_constant_path(location_id)
+        logger.debug(f"位置资源名称: {location_resource_name}")
         
         # 创建请求
         logger.debug("创建请求")
         request = client.get_type("GenerateKeywordIdeasRequest")
         request.customer_id = customer_id
-        request.language = language_id
-        request.geo_target_constants.append(location_id)
+        request.language = language_resource_name
+        request.geo_target_constants = [location_resource_name]
         request.include_adult_keywords = False
         request.keyword_plan_network = keyword_plan_network
-        request.keyword_seed = keyword_seed
-        logger.debug(f"成功创建请求: {request}")
+        
+        # 设置关键词种子
+        logger.debug(f"设置关键词种子: {keyword}")
+        request.keyword_seed.keywords.append(keyword)
+        logger.debug(f"成功设置关键词种子")
         
         # 发送请求
         logger.info("发送关键词规划请求")
         try:
-            # 在v17版本中，generate_keyword_ideas方法的参数可能有所不同
-            # 尝试直接传递请求对象
-            logger.debug("尝试调用generate_keyword_ideas方法")
-            response = keyword_plan_idea_service.generate_keyword_ideas(request)
-            logger.info("成功接收关键词规划响应")
-        except TypeError as e:
-            # 如果参数不匹配，尝试使用命名参数
-            logger.warning(f"使用请求对象调用失败: {e}，尝试使用命名参数")
+            logger.debug("调用generate_keyword_ideas方法")
+            
+            # 获取管理者账户ID
+            manager_id = GOOGLE_ADS.get('manager_customer_id')
+            
+            # 创建元数据，添加管理者账户ID作为login-customer-id
+            metadata = [
+                ("login-customer-id", manager_id)
+            ]
+            
+            logger.debug(f"使用管理者账户ID: {manager_id} 作为login-customer-id")
+            logger.debug(f"请求的客户账户ID: {customer_id}")
+            
+            # 使用元数据发送请求
             response = keyword_plan_idea_service.generate_keyword_ideas(
-                customer_id=customer_id,
-                language=language_id,
-                geo_target_constants=[location_id],
-                include_adult_keywords=False,
-                keyword_plan_network=keyword_plan_network,
-                keyword_seed=keyword_seed
+                request=request,
+                metadata=metadata
             )
-            logger.info("使用命名参数成功接收关键词规划响应")
+            
+            logger.info("成功获取关键词规划数据")
         except GoogleAdsException as ex:
             logger.error(f"Google Ads API错误: {ex}")
             for error in ex.failure.errors:
-                logger.error(f"\t{error.error_code.message}: {error.message}")
+                logger.error(f"\t{error.error_code}: {error.message}")
+            raise
+        except Exception as e:
+            logger.error(f"调用generate_keyword_ideas方法失败: {e}")
+            logger.error(traceback.format_exc())
             raise
         
         # 处理结果
         keyword_data = {}
-        logger.debug(f"处理响应结果，结果数量: {len(list(response.results))}")
+        logger.debug(f"处理响应结果")
         
-        for result in response.results:
+        for result in response:
             logger.debug(f"处理结果: {result.text}")
             if result.text.lower() == keyword.lower():
                 # 提取数据
@@ -104,8 +120,8 @@ def get_keyword_data(client, customer_id, keyword, language_id="1000", location_
                 break
         
         # 如果没有找到精确匹配的关键词，使用第一个结果
-        if not keyword_data and response.results:
-            result = response.results[0]
+        if not keyword_data and response:
+            result = list(response)[0]
             logger.info(f"未找到精确匹配，使用第一个结果: {result.text}")
             keyword_data = {
                 'keyword': result.text,
@@ -132,7 +148,7 @@ def get_keyword_data(client, customer_id, keyword, language_id="1000", location_
     except GoogleAdsException as ex:
         logger.error(f"Google Ads API错误: {ex}")
         for error in ex.failure.errors:
-            logger.error(f"\t{error.error_code.message}: {error.message}")
+            logger.error(f"\t{error.error_code}: {error.message}")
         raise
     except Exception as e:
         logger.error(f"获取关键词数据时出错: {e}")
